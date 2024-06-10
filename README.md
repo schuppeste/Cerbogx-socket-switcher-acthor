@@ -2,6 +2,9 @@
 Reads Battery Voltage on TCP Modbus CerboGX Devices and controls Fritz Dect200 Power Sockets from Configuration.
 
 New: acthor Control on BatterySoc+Battery Current>0 Voltage, Limit to maximum Load, Control Algorithm und several Settings.
+Ac-Thor Settings:
+![Bildschirmfoto vom 2024-06-10 11-43-06](https://github.com/schuppeste/Cerbogx-socket-switcher-acthor/assets/3218517/1f0e59e5-2ab3-48ef-a745-f78928524470)
+
 
 Webinterface:
 
