@@ -10,9 +10,9 @@ If all is good, the Modbus Client Reads every "Blocktime-Setting-Time" the Regis
 
 If the Curennt > 0 for "a_r_i" Times in Heartbeat, added the Value a_r to the Output Power (Reset a_r_i on not okay in 1 measurement, or adding the Value to Power Output)
 
-If the Current < 0 for "a_r_d" (needs Power from Battery),  subtract the Value a_r from the Output Power (Reset a_r_d on not okay in 1 measurement, or adding the Value to Power Output)
+If the Current < 0 for "a_r_d" Times in Heartbeat (needs Power from Battery),  subtract the Value a_r from the Output Power (Reset a_r_d on not okay in 1 measurement, or adding the Value to Power Output)
 
-
+In best Cases it needs 3 Times a_r_i and 2 Times a_r_d by a delay 20 Seconds/Modbus Reading.
 
 
 
