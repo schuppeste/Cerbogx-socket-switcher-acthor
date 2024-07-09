@@ -2,13 +2,18 @@
 #include "ESPAsyncWebServer.h"
 #include "FS.h"
 #include "SPIFFS.h"
+#include "esp_partition.h"
 #include <Arduino.h>
 #include <ArduinoFritzApi.h>
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
+#include <ModbusClientTCP.h>
 #include <WiFi.h>
-#include <esp32ModbusTCP.h>
 
+WiFiClient theClient;
+
+// Different Functions
+void handleData(ModbusMessage response, uint32_t token);
 bool SerialDebug = true;
 void synchroniseWith_NTP_Time();
 bool loadConfig();
@@ -23,40 +28,23 @@ bool check(int checkid);
 void removeblock();
 void RollingLog(int id, int status);
 bool isBetween(String &now, String &lo, String &hi);
-char now[5];
+void handleError(Error error, uint32_t token);
 void setonoff(bool dev);
+void serverpathes();
+unsigned long getTime();
+
+// Webform JSON
 StaticJsonDocument<4096> config;
 StaticJsonDocument<512> status;
 
-int hhh = 0;
-int plugcount = 0;
-int ordered[10];
-bool blockeda[10];
 String acthorIP = "";
-unsigned long blockedtime[10];
-unsigned long lastblockedtime[10];
-unsigned long lastsetstatus[10];
-// Logging
-struct logdata {
-  unsigned long a = 0;
-  uint8_t b = 255;
-  uint8_t c = 255;
-  double v = 0;
-} overall_log[200];
-unsigned long pointer = 0;
-unsigned long RollingPointer = 0;
 
-// struct logdata overall_log[200];
-
-void notFound(AsyncWebServerRequest *request) {
-  request->send(404, "application/json", "{\"message\":\"Not found\"}");
-}
-
+// NTP-time
 time_t nowsync;
 tm myTimeInfo;
+char now[5];
 
 int device_listcount = 0;
-void serverpathes();
 unsigned long lastupdate = 0;
 unsigned lastblock = 0;
 bool WiFiConnected = false;
@@ -88,8 +76,13 @@ unsigned long lastMillisTime = 0;
 // CerbogX 116300189689
 const char TIME_ZONE[] = "MEZ-1MESZ-2,M3.5.0/02:00:00,M10.5.0/03:00:00";
 const char NTP_SERVER_POOL[] = "192.168.178.1";
-esp32ModbusTCP cerbogx(100, {192, 168, 178, 68}, 502);
+// MODBUS SETTINGS
+// esp32ModbusTCP cerbogx(100, {192, 168, 178, 68}, 502);
+IPAddress ip = {192, 168, 178, 68};
+uint16_t port = 502; // port of modbus server
+ModbusClientTCP MB(theClient);
 
+// Create a ModbusTCP client instance
 unsigned long blocktime = 0;
 unsigned int acthor_power = 0;
 unsigned int acthor_regelung = 0;
@@ -112,13 +105,14 @@ int lastkwh = 0;
 int kwhmin = 0;
 int kwhmax = 0;
 int lastaction = 0;
-
-enum modbusType {
+enum modbusType
+{
   ENUM,  // enumeration
   UFIX0, // unsigned, no decimals
   SFIX0, // signed, no decimals
 };
-struct modbusData {
+struct modbusData
+{
   const char *name;
   uint16_t address;
   uint16_t length;
@@ -126,7 +120,9 @@ struct modbusData {
   uint16_t packetId;
   uint16_t serverid;
 };
-struct ains {
+
+struct ains
+{
   bool active = true;
   String id;
   String name;
@@ -161,11 +157,11 @@ modbusData modbusRegisters[] = {
     // Panel gesamtleistung
 
     "batteryvoltage", 840, 1, UFIX0, 0, 100, // Voltage
-    "batterysoc",     843, 1, UFIX0, 0, 100,
+    "batterysoc", 843, 1, UFIX0, 0, 100,
     "batterycurrent", 841, 1, SFIX0, 0, 100, // Voltage // Voltage
-    "l1output",       808, 1, UFIX0, 0, 100, // Voltage // Voltage
-    "l2output",       809, 1, UFIX0, 0, 100, // Voltage // Voltage
-    "l3output",       810, 1, UFIX0, 0, 100  // Voltage // Voltage
+    "l1output", 808, 1, UFIX0, 0, 100,       // Voltage // Voltage
+    "l2output", 809, 1, UFIX0, 0, 100,       // Voltage // Voltage
+    "l3output", 810, 1, UFIX0, 0, 100        // Voltage // Voltage
 };
 uint8_t numbermodbusRegisters =
     6; // sizeof(modbusRegisters) / sizeof(modbusRegisters[0]);
@@ -173,90 +169,61 @@ uint8_t currentmodbusRegister = 0;
 FritzApi fritz(fritz_user.c_str(), fritz_password.c_str(), fritz_ip.c_str());
 
 /// @brief
-void setup() {
+void setup()
+{
 
-  if (!SPIFFS.begin(true)) {
+  WiFi.disconnect(true);
+  esp_log_level_set("*", ESP_LOG_VERBOSE);
+
+  if (!SPIFFS.begin(true))
+  {
     Serial.println("An Error has occurred while mounting SPIFFS");
     return;
   }
   // bool formatted = SPIFFS.format();
+  // delay(10000);
+  Serial.begin(115200);
   loadConfig();
   syncConfig();
-
-  Serial.begin(115200);
-  WiFi.disconnect(true);
+ 
+  // WiFi.disconnect(true);
   WiFi.setHostname(hostname.c_str());
 
-  cerbogx.onData([](uint16_t packet, uint8_t slave, MBFunctionCode fc,
-                    uint8_t *data, uint16_t len) {
-    for (uint8_t i = 0; i < numbermodbusRegisters; i++) {
-      if (modbusRegisters[i].packetId == packet) {
-        modbusRegisters[i].packetId = 0;
-        uint32_t value = 0;
-        switch (modbusRegisters[i].type) {
-
-        case ENUM:
-        case UFIX0: {
-          value = (data[0] << 8) | (data[1]);
-          Serial.printf("%s: %u\n", modbusRegisters[i].name, value);
-          break;
-        }
-        case SFIX0: {
-          value = (data[0] << 8) | (data[1]);
-          Serial.printf("%s: %i\n", modbusRegisters[i].name, value);
-          break;
-        }
-        }
-        if (i == 0) {
-          lastvoltage = (double)value / 10.0;
-        } else if (i == 1) {
-          lastbattsoc = (int)value;
-        } else if (i == 2) {
-          lastbattcurrent = (int16_t)value;
-        } else if (i == 3) {
-          lastl1powermax = (u_int16_t)value;
-        } else if (i == 4) {
-          lastl2powermax = (u_int16_t)value;
-        } else if (i == 5) {
-          lastl3powermax = (u_int16_t)value;
-        }
-        lastupdate = millis();
-        return;
-      }
-    }
-  });
-
-  cerbogx.onError([](uint16_t packet, MBError e) {
-    Serial.printf("Error packet %u: %02x\n", packet, e);
-    lastupdate = 0;
-  });
   delay(1000);
   WiFi.onEvent(
-      [](WiFiEvent_t event, WiFiEventInfo_t info) {
+      [](WiFiEvent_t event, WiFiEventInfo_t info)
+      {
         Serial.print("WiFi connected. IP: ");
         Serial.println(IPAddress(info.got_ip.ip_info.ip.addr));
         WiFiConnected = true;
       },
       ARDUINO_EVENT_WIFI_STA_GOT_IP);
   WiFi.onEvent(
-      [](WiFiEvent_t event, WiFiEventInfo_t info) {
+      [](WiFiEvent_t event, WiFiEventInfo_t info)
+      {
         Serial.print("WiFi lost connection. Reason: ");
         Serial.println(info.wifi_sta_disconnected.reason);
-        WiFi.disconnect();
+        WiFi.disconnect(true);
         WiFiConnected = false;
         WiFi.begin(ssid, pass);
         MDNS.begin("switcher.fritz.box");
+        // MB.clearQueue();
       },
       ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
-  if (config["ssid"].as<String>() != "") {
+  if (config["ssid"].as<String>() != "")
+  {
     WiFi.begin(ssid, pass);
     MDNS.begin("switcher.fritz.box");
-  } else
+  }
+  else
     WiFi.softAP(ssidap, passap);
   delay(5000);
-  try {
+  try
+  {
     fritz.init();
-  } catch (int e) {
+  }
+  catch (int e)
+  {
     Serial.println("Could not connect to fritzbox: " + String(e));
   }
   setonoff(true);
@@ -264,29 +231,47 @@ void setup() {
 
   configTzTime(TIME_ZONE, NTP_SERVER_POOL);
   int cnt = 0;
-  while (cnt < device_listcount) {
+  while (cnt < device_listcount)
+  {
     // switchoff(device_list[cnt].id, cnt);
     cnt++;
     delay(100);
   }
+
+  MB.onDataHandler(&handleData);
+  MB.onErrorHandler(&handleError);
+  // Set message timeout to 2000ms and interval between requests to the same
+  // host to 200ms
+  MB.setTimeout(2000, 200);
+  MB.begin();
+  MB.setTarget(IPAddress(192, 168, 178, 68), 502); // CerbogGX IP
+
+  if (SerialDebug)
+    Serial.println("Setup Ready");
 }
 static uint32_t lastMillis = 0;
 
-void loop() {
+void loop()
+{
+
   // NTP Update
-  if ((millis() - lastMillisTime > 60000UL) && WiFiConnected) {
+  if ((millis() - lastMillisTime > 60000UL) && WiFiConnected)
+  {
     getLocalTime(&myTimeInfo);
-    while (strftime(now, 6, "%H:%M", &myTimeInfo) == 0) {
+    while (strftime(now, 6, "%H:%M", &myTimeInfo) == 0)
+    {
       if (SerialDebug)
         Serial.print("sync");
     }
     lastMillisTime = millis();
   }
-  // ModbusDataUpdate
-  if ((millis() - lastMillis > blocktime) && WiFiConnected) {
+
+  if ((millis() - lastMillis > blocktime) && WiFiConnected)
+  {
     lastMillis = millis();
     getLocalTime(&myTimeInfo);
-    while (strftime(now, 6, "%H:%M", &myTimeInfo) == 0) {
+    if (strftime(now, 6, "%H:%M", &myTimeInfo) == 0)
+    {
       if (SerialDebug)
         Serial.print("sync");
     }
@@ -296,16 +281,28 @@ void loop() {
 
     if (SerialDebug)
       Serial.print("reading registers\n");
-    for (uint8_t i = 0; i < numbermodbusRegisters; i++) {
-      uint16_t packetId = cerbogx.readHoldingRegisters(
-          modbusRegisters[i].address,
-          modbusRegisters[i].length); // modbusRegisters[i].serverid,
-      if (packetId > 0) {
-        modbusRegisters[i].packetId = packetId;
-      } else {
-        if (SerialDebug)
-          Serial.print("reading error\n");
+    if (WiFiConnected)
+    {
+
+      for (uint8_t i = 0; i < numbermodbusRegisters; i++)
+      {
+        uint32_t newtoken = (i << 24) | (newtoken) & 0x00FFFFFF;
+        Error err = MB.addRequest(newtoken, 100, READ_HOLD_REGISTER,
+                                  modbusRegisters[i].address,
+                                  modbusRegisters[i].length);
+        if (err != SUCCESS)
+        {
+          ModbusError e(err);
+          if (SerialDebug)
+            Serial.printf("Error creating request: %02X - %s\n", (int)e,
+                          (const char *)e);
+          lastupdate = 0;
+        }
       }
+    }
+    else
+    {
+      lastupdate = 0;
     }
     if (SerialDebug)
       Serial.println(lastvoltage);
@@ -313,9 +310,11 @@ void loop() {
     if (lastupdate != 0) // VoltageUpdate?
     {
       acthor_heartbeat();
-      while (cnt < device_listcount) {
+      while (cnt < device_listcount)
+      {
         if (device_list[cnt]
-                .active) // Check active before check Configuration Entrys
+                .active)
+        { // Check active before check Configuration Entrys
           if (check(
                   cnt)) // All Checks Positive? (Depency, Voltage and condition)
           {
@@ -325,32 +324,55 @@ void loop() {
               {
                 device_list[cnt].blocked = 1; // Set 1 one to activate blocking
                 device_list[cnt].lastblock = millis();
-              } else if (device_list[cnt].status == false &&
-                         device_list[cnt].blocked == 2) {
-                if (switchon(device_list[cnt].id, cnt) == 1) {
+              }
+              else if (device_list[cnt].status == false &&
+                       device_list[cnt].blocked == 2)
+              {
+                if (switchon(device_list[cnt].id, cnt) == 1)
+                {
                   device_list[cnt].status = true;
                   device_list[cnt].blocked = 0;
                 }
               }
             }
-          } else {
-            if (device_list[cnt].status == true) {
-              if (device_list[cnt].blocked == 0) {
+          }
+          else
+          {
+            if (device_list[cnt].status == true)
+            {
+              if (device_list[cnt].blocked == 0)
+              {
                 device_list[cnt].blocked = 3;
                 device_list[cnt].lastblock = millis();
-              } else if (device_list[cnt].status == true &&
-                         device_list[cnt].blocked == 4) {
-                if (switchoff(device_list[cnt].id, cnt) == 0) {
+              }
+              else if (device_list[cnt].status == true &&
+                       device_list[cnt].blocked == 4)
+              {
+                if (switchoff(device_list[cnt].id, cnt) == 0)
+                {
                   device_list[cnt].status = false;
                   device_list[cnt].blocked = 0;
                 }
               }
             }
           }
+        }
+        else
+        {
+        }
 
         cnt++;
       }
     }
+    else
+    {
+      
+      outputpower = 0;
+    }
+  }
+  else if (!WiFiConnected)
+  {
+
   }
 }
 
@@ -361,23 +383,30 @@ void loop() {
  * @param id
  * @return int
  */
-int switchon(String ain, int id) {
+int switchon(String ain, int id)
+{
   if (ain == "")
     return 1;
   int checkon = 2;
-  try {
+  try
+  {
 
     boolean b = fritz.setSwitchOn(ain);
-    if (b) {
+    if (b)
+    {
       checkon = 1;
       if (SerialDebug)
         Serial.println("Switch is on");
-    } else {
+    }
+    else
+    {
       checkon = 0;
       if (SerialDebug)
         Serial.println("Switch is off");
     }
-  } catch (int e) {
+  }
+  catch (int e)
+  {
     if (SerialDebug)
       Serial.println("Got errorCode during execution " + String(e));
   }
@@ -392,22 +421,29 @@ int switchon(String ain, int id) {
  * @param id
  * @return int
  */
-int switchoff(String ain, int id) {
+int switchoff(String ain, int id)
+{
   int checkoff = 2;
   if (ain == "")
     return 0;
-  try {
+  try
+  {
     boolean b = fritz.setSwitchOff(ain);
-    if (b) {
+    if (b)
+    {
       checkoff = 1;
       if (SerialDebug)
         Serial.println("Switch is on");
-    } else {
+    }
+    else
+    {
       checkoff = 0;
       if (SerialDebug)
         Serial.println("Switch is off");
     }
-  } catch (int e) {
+  }
+  catch (int e)
+  {
     if (SerialDebug)
       Serial.println("Got errorCode during execution " + String(e));
   }
@@ -419,36 +455,41 @@ int switchoff(String ain, int id) {
  * @brief Initilization of Server Pages
  *
  */
-void serverpathes() {
+void serverpathes()
+{
 
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
     AsyncWebServerResponse *response =
         request->beginResponse(200, "text/html", "Ok");
-    request->send(SPIFFS, "/www/index.html", "text/html");
-  });
+    request->send(SPIFFS, "/www/index.html", "text/html"); });
 
-  server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/www/favicon.png", "image/png");
-  });
+  server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(SPIFFS, "/www/favicon.png", "image/png"); });
 
   server.on("/css/bootstrap.min.css", HTTP_GET,
-            [](AsyncWebServerRequest *request) {
+            [](AsyncWebServerRequest *request)
+            {
               AsyncWebServerResponse *response =
                   request->beginResponse(200, "text/css", "Ok");
               request->send(SPIFFS, "/www/css/bootstrap.min.css", "text/css");
             });
 
-  server.on("/js/jsoneditor.js", HTTP_GET, [](AsyncWebServerRequest *request) {
+  server.on("/js/jsoneditor.js", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
     AsyncWebServerResponse *response =
         request->beginResponse(200, "text/javascript", "Ok");
-    request->send(SPIFFS, "/www/js/jsoneditor.js");
-  });
+    request->send(SPIFFS, "/www/js/jsoneditor.js"); });
 
   AsyncCallbackJsonWebHandler *handler = new AsyncCallbackJsonWebHandler(
-      "/postconfig", [](AsyncWebServerRequest *request, JsonVariant &json) {
-        if (json.is<JsonArray>()) {
+      "/postconfig", [](AsyncWebServerRequest *request, JsonVariant &json)
+      {
+        if (json.is<JsonArray>())
+        {
           config = json.as<JsonArray>();
-        } else if (json.is<JsonObject>()) {
+        }
+        else if (json.is<JsonObject>())
+        {
           config = json.as<JsonObject>();
         }
         String response = "";
@@ -462,19 +503,20 @@ void serverpathes() {
 
   server.addHandler(handler);
 
-  server.on("/getconfig", HTTP_GET, [](AsyncWebServerRequest *request) {
+  server.on("/getconfig", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
     String response = "";
     serializeJson(config, response);
-    request->send(200, "application/json", response);
-  });
+    request->send(200, "application/json", response); });
 
-  server.on("/getstats", HTTP_GET, [](AsyncWebServerRequest *request) {
+  server.on("/getstats", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
     String response = "";
     // PrettyAsyncJsonResponse(overall_log, response);
-    request->send(200, "application/json", response);
-  });
+    request->send(200, "application/json", response); });
 
-  server.on("/getstatus", HTTP_GET, [](AsyncWebServerRequest *request) {
+  server.on("/getstatus", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
     int zn = 0;
     while (zn < device_listcount) {
       status.add(device_list[zn].status);
@@ -482,8 +524,7 @@ void serverpathes() {
     }
     String response = "";
     serializeJson(status, response);
-    request->send(200, "application/json", response);
-  });
+    request->send(200, "application/json", response); });
   server.begin();
 }
 /**
@@ -492,10 +533,12 @@ void serverpathes() {
  * @return true
  * @return false
  */
-bool loadConfig() {
+bool loadConfig()
+{
 
   File configFile = SPIFFS.open("/www/config.json", "r");
-  if (!configFile) {
+  if (!configFile)
+  {
     Serial.println("- failed to open config file for writing");
     return false;
   }
@@ -510,12 +553,14 @@ bool loadConfig() {
  * @return true
  * @return false
  */
-bool saveConfig() {
+bool saveConfig()
+{
 
   Serial.print("ConfigFile_Save_Variable: ");
 
   File configFile = SPIFFS.open("/www/config.json", "w");
-  if (!configFile) {
+  if (!configFile)
+  {
     Serial.println("- failed to open config file for writing");
     return false;
   }
@@ -526,7 +571,9 @@ bool saveConfig() {
   return true;
 }
 
-void syncConfig() {
+/// @brief Sync Config, Json Save Object to Array
+void syncConfig()
+{
   ssid = config["ssid"].as<String>();
   pass = config["password"].as<String>();
   fritz_user = config["fritzuser"].as<String>();
@@ -541,16 +588,19 @@ void syncConfig() {
   acthor_time = (unsigned long)config["a_t"].as<long>();
   int z = 0;
 
-  while (!config["device_item"].as<JsonArray>().operator[](z).isNull()) {
+  while (!config["device_item"].as<JsonArray>().operator[](z).isNull())
+  {
     device_list[z].active =
         config["device_item"].operator[](z)["active"].as<bool>();
     device_list[z].name =
         config["device_item"].operator[](z)["name"].as<String>();
-    if (device_list[z].name.startsWith("acthor")) {
+    if (device_list[z].name.startsWith("acthor"))
+    {
       device_list[z].acthor = true;
       acthorenable = true;
       acthorid = z;
-    } else
+    }
+    else
       device_list[z].acthor = false;
     device_list[z].id =
         config["device_item"].operator[](z)["urlid"].as<String>();
@@ -590,28 +640,38 @@ void syncConfig() {
  * @return true
  * @return false
  */
-bool check(int checkid) {
+bool check(int checkid)
+{
   int timecheck = 0;
   int voltagecheck = 0;
   int depencycheck = 0;
   String mynow = String(now);
   String zero = "";
 
-  if (device_list[checkid].itime) {
+  if (device_list[checkid].itime)
+  {
     if (!(device_list[checkid].on == "00:00" &&
-          device_list[checkid].off == "00:00")) {
-      if (isBetween(mynow, device_list[checkid].on, device_list[checkid].off)) {
+          device_list[checkid].off == "00:00"))
+    {
+      if (isBetween(mynow, device_list[checkid].on, device_list[checkid].off))
+      {
         timecheck = 2;
       }
-    } else
+    }
+    else
       timecheck = 1;
-  } else {
+  }
+  else
+  {
     if (!(device_list[checkid].on == "00:00" &&
-          device_list[checkid].off == "00:00")) {
+          device_list[checkid].off == "00:00"))
+    {
       if (!isBetween(mynow, device_list[checkid].on,
-                     device_list[checkid].off)) {
+                     device_list[checkid].off))
+      {
         timecheck = 2;
-      } else
+      }
+      else
         timecheck = 1;
     }
   }
@@ -624,28 +684,34 @@ bool check(int checkid) {
    *
    */
   int templastvoltage = lastvoltage;
-  // if (!device_list[checkid].acthor)
-  //   templastvoltage = lastbattsoc;
   if (device_list[checkid].voltmin == 0 && device_list[checkid].voltmax == 0)
     voltagecheck = 3;
 
-  else if (!device_list[checkid].invert) {
+  else if (!device_list[checkid].invert)
+  {
 
     if (templastvoltage <= device_list[checkid].voltmin &&
-        device_list[checkid].firevent == false) {
+        device_list[checkid].firevent == false)
+    {
       voltagecheck = 1;
       device_list[checkid].firevent = true;
-    } else if (templastvoltage <= device_list[checkid].voltmax &&
-               device_list[checkid].firevent == true)
+    }
+    else if (templastvoltage <= device_list[checkid].voltmax &&
+             device_list[checkid].firevent == true)
       voltagecheck = 1;
 
     else
       device_list[checkid].firevent = false;
-  } else {
+  }
+  else
+  {
     if (templastvoltage >= device_list[checkid].voltmin &&
-        device_list[checkid].firevent == false) {
+        device_list[checkid].firevent == false)
+    {
       voltagecheck = 1;
-    } else {
+    }
+    else
+    {
       if (!device_list[checkid].firevent)
         device_list[checkid].firevent = true;
       if (templastvoltage >= device_list[checkid].voltmax)
@@ -660,18 +726,21 @@ bool check(int checkid) {
    * @brief Check Depencys
    *
    */
-  if (device_list[checkid].depoff != 0 || device_list[checkid].depon != 0) {
+  if (device_list[checkid].depoff != 0 || device_list[checkid].depon != 0)
+  {
     if (device_list[checkid].depon != 0)
       if (device_list[device_list[checkid].depon - 1].status == 1)
         depencycheck = 1;
     if (device_list[checkid].depoff != 0)
       if (device_list[device_list[checkid].depoff - 1].status == 0)
         depencycheck = 1;
-  } else
+  }
+  else
     depencycheck = 3;
 
   // summarize checks
-  if (SerialDebug) {
+  if (SerialDebug)
+  {
     Serial.print(checkid);
     Serial.print("--");
     Serial.print(voltagecheck);
@@ -699,7 +768,8 @@ bool check(int checkid) {
  * @return true
  * @return false
  */
-bool isBetween(String &now, String &lo, String &hi) {
+bool isBetween(String &now, String &lo, String &hi)
+{
   return (now >= lo) && (now <= hi);
 }
 
@@ -707,20 +777,25 @@ bool isBetween(String &now, String &lo, String &hi) {
  * @brief Remove Delay Blocks
  *
  */
-void removeblock() {
+void removeblock()
+{
   int cntblocked = 0;
-  while (cntblocked < device_listcount) {
+  while (cntblocked < device_listcount)
+  {
     if (device_list[cntblocked].blocked == 1 ||
-        device_list[cntblocked].blocked == 3) {
+        device_list[cntblocked].blocked == 3)
+    {
       if (millis() - device_list[cntblocked].lastblock >
               (1000UL * device_list[cntblocked].delon) &&
-          device_list[cntblocked].blocked == 1) {
+          device_list[cntblocked].blocked == 1)
+      {
         device_list[cntblocked].blocked = 2;
       }
 
       if (millis() - device_list[cntblocked].lastblock >
               (1000UL * device_list[cntblocked].deloff) &&
-          device_list[cntblocked].blocked == 3) {
+          device_list[cntblocked].blocked == 3)
+      {
         device_list[cntblocked].blocked = 4;
       }
     }
@@ -728,8 +803,10 @@ void removeblock() {
   }
 }
 
-unsigned long getTime();
-void RollingLog(int id, int status) {
+/// @brief Template to send actions to a Php-Script and Database
+/// @return
+void RollingLog(int id, int status)
+{
   /*HTTPClient http;
   String queryString = "time=" + String(getTime()) + "&dev=" + String(id) +
                        "&status=" + String(status) +
@@ -746,18 +823,25 @@ void RollingLog(int id, int status) {
   }*/
 }
 
-unsigned long getTime() {
+/// @brief get Time from integrated local Time, synched by NTP
+/// @return
+unsigned long getTime()
+{
   time_t now;
   struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
+  if (!getLocalTime(&timeinfo))
+  {
     // Serial.println("Failed to obtain time");
     return (0);
   }
   time(&now);
   return now;
 }
-// ACThor Requests
-void set_Power(int Power) {
+
+/// @brief Set Acthor htpp Request
+/// @param Power
+void set_Power(int Power)
+{
   HTTPClient http;
   String url = "http://" + acthorIP + "/control.html?power=" + String(Power);
   http.begin(url);
@@ -766,11 +850,17 @@ void set_Power(int Power) {
   if (SerialDebug)
     Serial.println("acthor set " + String(Power));
   // httpCode will be negative on error
-  if (httpCode > 0) {
+  if (httpCode > 0)
+  {
     ;
   }
+  http.end();
 }
-void setonoff(bool dev) {
+
+/// @brief Error Backup, Shutdwon Act-Thor (not used)
+/// @param dev
+void setonoff(bool dev)
+{
   HTTPClient http;
   String url =
       "http://" + acthorIP + "/setup.jsn?devmode=" + String(dev ? 1 : 0);
@@ -780,47 +870,67 @@ void setonoff(bool dev) {
   if (SerialDebug)
     Serial.println("acthor set " + String(dev));
   // httpCode will be negative on error
-  if (httpCode > 0) {
+  if (httpCode > 0)
+  {
     ;
   }
+  http.end();
 }
 
-void acthor_heartbeat() {
-  if (SerialDebug) {
+/// @brief Ac-Thor Controller Function
+void acthor_heartbeat()
+{
+  if (SerialDebug)
+  {
     Serial.println(lastbattsoc);
-    Serial.println(lastmpptstate);
     Serial.println(lastbattcurrent);
     Serial.println(lastl1powermax);
     Serial.println(lastl2powermax);
     Serial.println(lastl3powermax);
+    Serial.println(acthor_lastdirection);
+    Serial.println(acthor_countdirection);
+    Serial.println(acthor_count_repeat_increase);
+    Serial.println(acthor_power);
   }
   if (lastbattsoc > 95 && lastbattcurrent > 0 && lastl1powermax < 2500 &&
-      lastl2powermax < 2500 && lastl3powermax < 2500) //|| (lastmpptstate == 4)
+      lastl2powermax < 2500 && lastl3powermax < 2500 &&
+      device_list[acthorid].status) //|| (lastmpptstate == 4)
   {
-    if (acthor_lastdirection == true) {
+    if (acthor_lastdirection == true)
+    {
       acthor_countdirection++;
-    } else
+    }
+    else
+    {
       acthor_countdirection = 0;
+    }
 
     if (outputpower <= acthor_power &&
-        acthor_countdirection > acthor_count_repeat_increase) {
+        acthor_countdirection >= acthor_count_repeat_increase)
+    {
       if (outputpower + acthor_regelung < acthor_power)
         outputpower = outputpower + acthor_regelung;
       else
+      {
         outputpower = acthor_power;
+      }
       acthor_countdirection = 0;
     }
     acthor_lastdirection = true;
-  } else {
-    Serial.println(acthor_lastdirection);
-    Serial.println(acthor_countdirection);
-    if (acthor_lastdirection == false) {
+  }
+  else
+  {
+
+    if (acthor_lastdirection == false)
+    {
       acthor_countdirection++;
-    } else
+    }
+    else
       acthor_countdirection = 0;
 
     if (outputpower > 0 &&
-        acthor_countdirection > acthor_count_repeat_decrease) {
+        acthor_countdirection > acthor_count_repeat_decrease)
+    {
       if (outputpower > acthor_regelung)
         outputpower = outputpower - acthor_regelung;
       else
@@ -829,7 +939,81 @@ void acthor_heartbeat() {
     }
     acthor_lastdirection = false;
   }
+
   set_Power(outputpower);
+
   if (SerialDebug)
     Serial.println("Acthor" + String(outputpower));
+}
+
+/// @brief Modbus Response -> parse Bytes
+/// @param response
+/// @param token
+void handleData(ModbusMessage response, uint32_t token)
+{
+  if (SerialDebug)
+    Serial.printf("Response: serverID=%d, FC=%d, Token=%08X, length=%d:\n",
+                  response.getServerID(), response.getFunctionCode(), token,
+                  response.size());
+
+  uint8_t type = (token >> 24) & 0xff;
+  uint32_t value = 0;
+  if (SerialDebug)
+    Serial.println("token" + String(type));
+  switch (modbusRegisters[type].type)
+  {
+
+  case ENUM:
+  case UFIX0:
+  {
+    value = (response[3] << 8) | (response[4]);
+    Serial.printf("%s: %u\n", modbusRegisters[type].name, value);
+    break;
+  }
+  case SFIX0:
+  {
+    value = (response[3] << 8) | (response[4]);
+    Serial.printf("%s: %i\n", modbusRegisters[type].name, value);
+    break;
+  }
+  }
+  if (type == 0)
+  {
+    lastvoltage = (double)value / 10.0;
+  }
+  else if (type == 1)
+  {
+    lastbattsoc = (int)value;
+  }
+  else if (type == 2)
+  {
+    lastbattcurrent = (int16_t)value;
+  }
+  else if (type == 3)
+  {
+    lastl1powermax = (u_int16_t)value;
+  }
+  else if (type == 4)
+  {
+    lastl2powermax = (u_int16_t)value;
+  }
+  else if (type == 5)
+  {
+    lastl3powermax = (u_int16_t)value;
+  }
+  lastupdate = millis();
+  return;
+}
+// Define an onError handler function to receive error responses
+// Arguments are the error code returned and a user-supplied token to identify
+// the causing request
+void handleError(Error error, uint32_t token)
+{
+  // ModbusError wraps the error code and provides a readable error message for
+  // it
+  ModbusError me(error);
+  Serial.printf("Error response: %02X - %s token: %d\n", (int)me,
+                (const char *)me, token);
+
+  lastupdate = 0;
 }
