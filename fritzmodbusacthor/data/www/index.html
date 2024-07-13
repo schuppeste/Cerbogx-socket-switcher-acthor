@@ -70,7 +70,7 @@
             "default": ""
           },
           "blocktime": {
-            "description": "Repeat Modbus Delay (Control Intervall in Seconds)",
+            "description": "Cerbo Modbus Request Intervall in Seconds",
             "type": "number",
             "default": 10
           },"a_ip": {
@@ -78,30 +78,40 @@
             "type": "string",
             "default": ""
           },
+          "a_imax": {
+            "description": "acthor Ampere Limit DC (decrease on Battery Consumption +-0)",
+            "type": "number",
+            "default": 150
+          },
+          "a_bat": {
+            "description": "acthor Reached Battery Limit in % (Decrease under Limit)",
+            "type": "number",
+            "default": 95
+          },
           "a_p": {
-            "description": "acthor- Max Control Power",
+            "description": "acthor- Max Power Limit",
             "type": "number",
             "default": 1500
           },
           "a_r_i": {
-            "description": "acthor repeat Condition before increase",
+            "description": "acthor Counted Positive Measurements by Intervall before increase",
             "type": "number",
             "default": 3
           },
           "a_r_d": {
-            "description": "acthor repeat condition before increase",
+            "description": "acthor Counted Positive Measurements by Intervall before increase",
             "type": "number",
             "default": 5
           },
-          "a_r": {
-            "description": "acthor-Control Steps",
+          "a_r_si": {
+            "description": "Rising Wattage Steps",
             "type": "number",
-            "default": 300
+            "default": 220
           },
-          "a_t": {
-            "description": "acthor-Control measurement",
+          "a_r_sd": {
+            "description": "Sinking Wattage Steps",
             "type": "number",
-            "default": 10000
+            "default": 220
           },
           "device_item": {
             "type": "array",
