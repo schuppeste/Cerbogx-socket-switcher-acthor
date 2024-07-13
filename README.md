@@ -1,12 +1,11 @@
 # Cerbogx-socket-switcher-acthor
-Reads Battery Voltage,SOC,DC-Ampere on TCP Modbus CerboGX Devices and controls Fritz Dect200 Power Sockets/All http Sockets by own Configuration.
+Reads Battery Voltage,SOC,DC-Ampere on TCP Modbus on CerboGX PV Control Device and controls Fritz Dect200 Power Sockets/All http Sockets by own Configuration.
 
-New: acthor Control on BatterySoc+Battery Current, Voltage, Limit to maximum Load, Control Algorithm und several Settings.
+New: My-PV ac-thor Control on BatterySoc+Battery Current, Voltage, Limit to maximum Load, Control Algorithm und several Settings.
 
-If all is good, the Modbus Client Reads every "Blocktime" 5 Registers on the CerboGX.
-
+If all is good, the ESP32 increase the Acthor Power in defined Step, otherwise decreases the Power.
 Show scrrenshot for Details.
-
+in
 Ac-Thor Settings:
 
 ![Screenshot 2024-07-13 at 21-24-49 Main Configuration](https://github.com/user-attachments/assets/1bcf0ecf-3903-4b89-b82a-b618b348e3f3)
