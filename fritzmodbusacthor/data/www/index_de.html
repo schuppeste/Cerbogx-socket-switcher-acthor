@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta http-equiv="content-language" content="de" />
+  <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgo=">
+  <title>Main Configuration</title>
+  <link href="css/bootstrap.min.css" rel="stylesheet" media="screen">
+  <script src="js/jsoneditor.js"></script>
+
+</head>
+
+<body>
+  <h1>Basic Settings</h1>
+
+  <div id='editor_holder'></div>
+  </br>
+  <button id='submit'>Save Config</button>
+  </br>
+  </br>
+  <script>
+
+    //# sourceMappingURL=jsoneditor.js.map
+    // Initialize the editor with a JSON schema
+    JSONEditor.defaults.options.theme = 'bootstrap2';
+    JSONEditor.defaults.options.disable_edit_json = true;
+    JSONEditor.defaults.options.disable_properties = true;
+    JSONEditor.defaults.options.disable_collapse = true;
+
+    //JSONEditor.defaults.options.disable_array_reorder = true;
+
+    const options = {
+      mode: 'view'
+    }
+    var editor = new JSONEditor(document.getElementById('editor_holder'), {
+      schema: {
+        "title": "Settings",
+        "type": "object",
+        "description": "",
+        "properties": {
+          "ssid": {
+            "type": "string",
+            "description": "SSID",
+            "minLength": 4,
+            "default": ""
+          },
+          "password": {
+            "description": "Password",
+            "type": "string",
+            "default": ""
+          },
+          "gateway": {
+            "description": "Gateway",
+            "type": "string",
+            "default": ""
+          },
+          "fritzbox": {
+            "description": "Fritzbox-IP",
+            "type": "string",
+            "default": ""
+          },
+          "fritzuser": {
+            "description": "Fritz-User",
+            "type": "string",
+            "default": ""
+          },
+          "fritzpass": {
+            "description": "Fritz-User-Password",
+            "type": "string",
+            "default": ""
+          },
+          "blocktime": {
+            "description": "Cerbo Abfrage Pause in Sekunden",
+            "type": "number",
+            "default": 10
+          },"a_ip": {
+            "description": "Acthor-IP",
+            "type": "string",
+            "default": ""
+          },
+          "a_imax": {
+            "description": "acthor Grenze Strom aus/in Batterie in Ampere (+/-)",
+            "type": "number",
+            "default": 150
+          },
+          "a_bat": {
+            "description": "acthor- Batterie Ladezustand in %",
+            "type": "number",
+            "default": 95
+          },
+          "a_p": {
+            "description": "acthor- Maximale Watt für Regelung",
+            "type": "number",
+            "default": 1500
+          },
+          "a_r_i": {
+            "description": "acthor Wieviele Messergebnisse Positiv für Stufe hoch",
+            "type": "number",
+            "default": 3
+          },
+          "a_r_d": {
+            "description": "acthor Wieviele Messergebnisse Positiv für Stufe runter",
+            "type": "number",
+            "default": 5
+          },
+          "a_r_si": {
+            "description": "acthor Spruenge/Stufen in Watt bei Erhoehung",
+            "type": "number",
+            "default": 220
+          },
+          "a_r_sd": {
+            "description": "acthor Spruenge/Stufen in Watt bei Reduzierung",
+            "type": "number",
+            "default": 220
+          },
+          "device_item": {
+            "type": "array",
+            "format": "table",
+            "title": "Device List",
+            "description": "delon/deloff=Change Delay | invert=invert (On/Off toggle) | depon/depoff= Depending on other Entry is On/Off(Cascade) | itime= in or not between Time",
+            "items": {
+              "type": "object",
+              "title": "Device List",
+              "properties": {
+                "active": {
+                  "type": "boolean",
+                  "format": "checkbox",
+                  "value": "true"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "urlid": {
+                  "type": "string"
+                },
+                "invert": {
+                  "description": "",
+                  "type": "string",
+                  "enum": [
+                    "OnOff",
+                    "OffOn"
+                  ]
+                },
+                "voltmin": {
+                  "description": "",
+                  "type": "number",
+                  "options": {
+                    "input_width": "50px"
+                  }
+                },
+                "voltmax": {
+                  "description": "",
+                  "type": "number",
+                  "options": {
+                    "input_width": "50px"
+                  }
+                },
+                "delon": {
+                  "description": "",
+                  "type": "number",
+                  "options": {
+                    "input_width": "50px"
+                  }
+                }, "deloff": {
+                  "description": "",
+                  "type": "number",
+                  "options": {
+                    "input_width": "50px"
+                  }
+                },
+                "depon": {
+                  "description": "",
+                  "type": "number",
+                  "default": 0,
+                  "options": {
+                    "input_width": "50px"
+                  }
+                },
+                "depoff": {
+                  "description": "",
+                  "type": "number",
+                  "default": 0,
+                  "options": {
+                    "input_width": "50px"
+                  }
+                },
+                "on": {
+                  "description": "",
+                  "type": "string",
+                  "default": "00\:00",
+                  "options": {
+                    "input_width": "50px"
+                  }
+                },
+                "off": {
+                  "description": "",
+                  "type": "string",
+                  "default": "00\:00",
+                  "options": {
+                    "input_width": "50px"
+                  }
+                },
+                "itime": {
+                  "description": "",
+                  "type": "string",
+                  "enum": [
+                    "OnOff",
+                    "OffOn"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+    var xmlhttp = new XMLHttpRequest();
+    var url = "/getconfig";
+
+    xmlhttp.onreadystatechange = function () {
+      if (this.readyState == 4 && this.status == 200) {
+        console.log("getparse")
+        console.log(this.responseText);
+        var myArr;
+        try {
+          myArr = JSON.parse(this.responseText);
+        } catch (e) {
+          const button = document.getElementById("submit");
+          button.disabled = true;
+          alert("Please restart your device, no access");
+
+        }
+
+        editor.setValue(myArr);
+      }
+    };
+    xmlhttp.open("GET", url, true);
+    xmlhttp.send();
+
+    document.getElementById('submit').addEventListener('click', function () {
+      let xhr = new XMLHttpRequest();
+      xhr.open("POST", "/postconfig");
+      xhr.setRequestHeader("Accept", "application/json");
+      xhr.setRequestHeader("Content-Type", "application/json");
+
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState === 4) {
+          if (xhr.readyState == 4 && xhr.status == 200) {
+            alert("Data Saved!")
+            console.log(editor.getValue());
+          }
+        }
+      };
+
+      let data = editor.getValue();
+      var tempdata = JSON.stringify(data);
+      xhr.send(tempdata);
+    });
+
+
+  </script>
+</body>
+
+</html>
