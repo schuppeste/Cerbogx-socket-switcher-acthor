@@ -2,7 +2,6 @@
 #include "ESPAsyncWebServer.h"
 #include "FS.h"
 #include "SPIFFS.h"
-#include "esp_partition.h"
 #include <Arduino.h>
 #include <ArduinoFritzApi.h>
 #include <ArduinoJson.h>
@@ -85,7 +84,8 @@ ModbusClientTCP MB(theClient);
 // Create a ModbusTCP client instance
 unsigned long blocktime = 0;
 unsigned int acthor_power = 0;
-unsigned int acthor_regelung = 0;
+unsigned int acthor_control_d = 0;
+unsigned int acthor_control_i = 0;
 unsigned long acthor_time = 0;
 int acthor_count_repeat_increase = 2;
 int acthor_count_repeat_decrease = 4;
@@ -96,8 +96,10 @@ unsigned int lastl1powermax = 0;
 unsigned int lastl2powermax = 0;
 unsigned int lastl3powermax = 0;
 int lastbattsoc = 0;
+int lastbattsocset=95;
 int lastcurrent = 0;
-int lastbattcurrent = 0;
+double lastbattcurrent = 0;
+int lastbattcurrentset = -100;
 int lastmpptstate = 0;
 
 boolean lastalarm = 0;
@@ -152,10 +154,6 @@ int acthorid = 255;
 struct ains device_list[10];
 
 modbusData modbusRegisters[] = {
-    // 843 Batterie SOC
-    // L1 Output
-    // Panel gesamtleistung
-
     "batteryvoltage", 840, 1, UFIX0, 0, 100, // Voltage
     "batterysoc", 843, 1, UFIX0, 0, 100,
     "batterycurrent", 841, 1, SFIX0, 0, 100, // Voltage // Voltage
@@ -180,9 +178,9 @@ void setup()
     Serial.println("An Error has occurred while mounting SPIFFS");
     return;
   }
-  // bool formatted = SPIFFS.format();
-  // delay(10000);
-  Serial.begin(115200);
+ //  bool formatted = SPIFFS.format();
+ // while(true){}
+    Serial.begin(115200);
   loadConfig();
   syncConfig();
  
@@ -237,7 +235,7 @@ void setup()
     cnt++;
     delay(100);
   }
-
+// Modbus Config
   MB.onDataHandler(&handleData);
   MB.onErrorHandler(&handleError);
   // Set message timeout to 2000ms and interval between requests to the same
@@ -307,9 +305,10 @@ void loop()
     if (SerialDebug)
       Serial.println(lastvoltage);
     int cnt = 0;
+          acthor_heartbeat();
     if (lastupdate != 0) // VoltageUpdate?
     {
-      acthor_heartbeat();
+
       while (cnt < device_listcount)
       {
         if (device_list[cnt]
@@ -581,11 +580,15 @@ void syncConfig()
   fritz_ip = config["fritzbox"].as<String>();
   blocktime = (unsigned long)config["blocktime"].as<long>() * 1000UL;
   acthorIP = config["a_ip"].as<String>();
-  acthor_regelung = config["a_r"].as<int>();
+  acthor_control_d = config["a_r_sd"].as<unsigned int>();
+  acthor_control_i = config["a_r_si"].as<unsigned int>();
   acthor_power = config["a_p"].as<int>();
   acthor_count_repeat_decrease = config["a_r_d"].as<int>();
   acthor_count_repeat_increase = config["a_r_i"].as<int>();
   acthor_time = (unsigned long)config["a_t"].as<long>();
+  lastbattcurrentset = config["a_imax"].as<int>();
+  lastbattsocset = config["a_bat"].as<int>();
+
   int z = 0;
 
   while (!config["device_item"].as<JsonArray>().operator[](z).isNull())
@@ -843,7 +846,7 @@ unsigned long getTime()
 void set_Power(int Power)
 {
   HTTPClient http;
-  String url = "http://" + acthorIP + "/control.html?power=" + String(Power);
+  String url = "http://192.168.178.76/control.html?power=" + String(Power);
   http.begin(url);
   http.setConnectTimeout(100);
   int httpCode = http.GET();
@@ -863,7 +866,7 @@ void setonoff(bool dev)
 {
   HTTPClient http;
   String url =
-      "http://" + acthorIP + "/setup.jsn?devmode=" + String(dev ? 1 : 0);
+      "http://192.168.178.76/setup.jsn?devmode=" + String(dev ? 1 : 0);
   http.begin(url.c_str());
   http.setConnectTimeout(100);
   int httpCode = http.GET();
@@ -892,9 +895,9 @@ void acthor_heartbeat()
     Serial.println(acthor_count_repeat_increase);
     Serial.println(acthor_power);
   }
-  if (lastbattsoc > 95 && lastbattcurrent > 0 && lastl1powermax < 2500 &&
+  if (lastbattsoc > lastbattsocset && lastbattcurrent >=lastbattcurrentset && lastl1powermax < 2500 &&
       lastl2powermax < 2500 && lastl3powermax < 2500 &&
-      device_list[acthorid].status) //|| (lastmpptstate == 4)
+      device_list[acthorid].status && lastupdate !=0) //|| (lastmpptstate == 4)
   {
     if (acthor_lastdirection == true)
     {
@@ -908,8 +911,8 @@ void acthor_heartbeat()
     if (outputpower <= acthor_power &&
         acthor_countdirection >= acthor_count_repeat_increase)
     {
-      if (outputpower + acthor_regelung < acthor_power)
-        outputpower = outputpower + acthor_regelung;
+      if (outputpower + acthor_control_i < acthor_power)
+        outputpower = outputpower + acthor_control_i;
       else
       {
         outputpower = acthor_power;
@@ -931,8 +934,8 @@ void acthor_heartbeat()
     if (outputpower > 0 &&
         acthor_countdirection > acthor_count_repeat_decrease)
     {
-      if (outputpower > acthor_regelung)
-        outputpower = outputpower - acthor_regelung;
+      if (outputpower > acthor_control_d)
+        outputpower = outputpower - acthor_control_d;
       else
         outputpower = 0;
       acthor_countdirection = 0;
@@ -987,7 +990,7 @@ void handleData(ModbusMessage response, uint32_t token)
   }
   else if (type == 2)
   {
-    lastbattcurrent = (int16_t)value;
+    lastbattcurrent = (int16_t)value /10;
   }
   else if (type == 3)
   {
