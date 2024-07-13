@@ -1,24 +1,15 @@
 # Cerbogx-socket-switcher-acthor
-Reads Battery Voltage on TCP Modbus CerboGX Devices and controls Fritz Dect200 Power Sockets from Configuration.
+Reads Battery Voltage,SOC,DC-Ampere on TCP Modbus CerboGX Devices and controls Fritz Dect200 Power Sockets/All http Sockets by own Configuration.
 
 New: acthor Control on BatterySoc+Battery Current, Voltage, Limit to maximum Load, Control Algorithm und several Settings.
 
-Hardcoded: Battery SOC > 95% & Current>0A & All 3 Phases on Output not in Limit(2,5KW Multiplus)
-lastbattsoc > 95 && lastbattcurrent > 0 && lastl1powermax < 2500 && lastl2powermax < 2500 && lastl3powermax < 2500
+If all is good, the Modbus Client Reads every "Blocktime" 5 Registers on the CerboGX.
 
-If all is good, the Modbus Client Reads every "Blocktime-Setting-Time" the Registers on the CerboGX, calling acthor_heartbeat Function after reading.
-
-If the Curennt > 0 for "a_r_i" Times in Heartbeat, added the Value a_r to the Output Power (Reset a_r_i on not okay in 1 measurement, or adding the Value to Power Output)
-
-If the Current < 0 for "a_r_d" Times in Heartbeat (needs Power from Battery),  subtract the Value a_r from the Output Power (Reset a_r_d on not okay in 1 measurement, or adding the Value to Power Output)
-
-In best Cases it needs 3 Times a_r_i and 2 Times a_r_d by a delay 20 Seconds/Modbus Reading.
-
-
-
+Show scrrenshot for Details.
 
 Ac-Thor Settings:
-![Bildschirmfoto vom 2024-06-10 11-43-06](https://github.com/schuppeste/Cerbogx-socket-switcher-acthor/assets/3218517/1f0e59e5-2ab3-48ef-a745-f78928524470)
+
+![Screenshot 2024-07-13 at 21-24-49 Main Configuration](https://github.com/user-attachments/assets/1bcf0ecf-3903-4b89-b82a-b618b348e3f3)
 
 
 Webinterface:
