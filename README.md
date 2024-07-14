@@ -2,7 +2,7 @@
 
 The ESP32 reads the Battery Voltage,SOC,DC-Current and Multiplus Load by TCP Modbus on CerboGX PV Control Device and controls Fritz Dect200 Power Sockets/All http Power Sockets by own Configuration.
 
-New: My-PV ac-thor Control on BatterySoc+Battery Current, Voltage, Limit to maximum Load, Control Algorithm und several Settings.
+New: My-PV ac-thor Control on BatterySoc+Battery Current, Voltage, Limit to maximum Load, Control Algorithm and several Settings.
 
 If all is good, the ESP32 increase the Acthor Power in defined Steps, otherwise itdecreases the Power.
 Show scrrenshot for Details.
