@@ -9,7 +9,8 @@ Show scrrenshot for Details.
 
 Ac-Thor Settings German/Deutsch:
 
-![Screenshot 2024-07-16 at 13-34-24 Main Configuration](https://github.com/user-attachments/assets/7373927a-d08e-4735-ac50-9a6d7a1cda24)
+![cthorlatestgerman](https://github.com/user-attachments/assets/1fd72bc6-3383-40fa-b707-bedf365bfd1d)
+
 
 
 Ac-Thor Settings English:
