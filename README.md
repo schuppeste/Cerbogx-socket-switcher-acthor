@@ -7,7 +7,12 @@ New: My-PV ac-thor Control on BatterySoc+Battery Current, Voltage, Limit to maxi
 If all is good, the ESP32 increase the Acthor Power in defined Steps, otherwise itdecreases the Power.
 Show scrrenshot for Details.
 
-Ac-Thor Settings:
+Ac-Thor Settings German/Deutsch:
+
+![Screenshot 2024-07-16 at 13-34-24 Main Configuration](https://github.com/user-attachments/assets/7373927a-d08e-4735-ac50-9a6d7a1cda24)
+
+
+Ac-Thor Settings English:
 
 ![Screenshot 2024-07-13 at 21-24-49 Main Configuration](https://github.com/user-attachments/assets/1bcf0ecf-3903-4b89-b82a-b618b348e3f3)
 
